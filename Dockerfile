@@ -16,9 +16,9 @@ RUN apt-get update && \
 
 # Download and extract the latest AdGuardHome release
 RUN set -eux; \
-    AGH_VERSION=$(curl -sL https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name | sed 's/v//'); \
-    echo "Downloading AdGuardHome v${AGH_VERSION}..."; \
-    curl -fSL "https://github.com/AdguardTeam/AdGuardHome/releases/download/v${AGH_VERSION}/AdGuardHome_linux_armv5.tar.gz" -o agh.tar.gz; \
+    AGH_VERSION=$(curl -sL https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name); \
+    echo "Downloading AdGuardHome ${AGH_VERSION}..."; \
+    curl -fSL "https://github.com/AdguardTeam/AdGuardHome/releases/download/${AGH_VERSION}/AdGuardHome_linux_armv5.tar.gz" -o agh.tar.gz; \
     tar -xzf agh.tar.gz;
 
 # STAGE 2: Final Runtime
