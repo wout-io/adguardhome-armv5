@@ -25,7 +25,7 @@ https://ghcr.io
 Then pull the image from:
 
 ```
-raw-network/adguardhome-armv5:latest
+wout-io/adguardhome-armv5:latest
 ```
 
 ---
