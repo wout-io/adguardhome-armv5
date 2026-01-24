@@ -1,3 +1,7 @@
+# NOTE
+
+This is a fork of bakito/adguardhome-armv5. I created this fork to automate updates and maintain specific support for MikroTik armv5 devices. All credit for the original build logic goes to the original author.
+
 # About
 
 This project was created to provide a fully working **AdGuardHome container for legacy routers**, specifically **MikroTik hEX (ARMv5 / EN7562CT CPU)**.
