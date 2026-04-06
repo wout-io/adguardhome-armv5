@@ -1,14 +1,15 @@
-name: Docker Image CI
+name: Build and publish ARMv5 AdGuard Home
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: '0 3 * * *' # Corrected: Runs every day at 03:00 AM UTC
-  workflow_dispatch:      # Allows you to start it manually for testing
+    - cron: '17 3 * * *'
   push:
     branches:
       - main
     paths:
       - 'Dockerfile'
+      - '.github/workflows/docker-publish.yaml'
 
 jobs:
   build-and-push:
@@ -34,57 +35,52 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build image (Force check for new version)
+      - name: Build image locally
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/arm/v5
           push: false
           load: true
-          no-cache: true # CRITICAL: This forces the Dockerfile to run the 'curl' again
+          no-cache: true
           tags: agh:local
 
-      - name: Get AdGuardHome version from built image
-        id: get_version
+      - name: Detect AdGuard version
+        id: version
         run: |
-          # Runs the binary inside the armv5 image (via QEMU) to ask its version
           RAW_VERSION=$(docker run --rm agh:local ./AdGuardHome --version)
-          # Extracts the version tag (e.g., v0.107.52)
           VERSION_TAG=$(echo "$RAW_VERSION" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
-          
+
           if [ -z "$VERSION_TAG" ]; then
-            echo "Error: Could not detect version from binary"
+            echo "Could not detect AdGuard version"
             exit 1
           fi
-          
-          echo "Detected AdGuardHome version: $VERSION_TAG"
-          echo "AGH_VERSION=$VERSION_TAG" >> "$GITHUB_OUTPUT"
 
-      - name: Check if version exists in GHCR
-        id: check_image
+          echo "tag=$VERSION_TAG" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $VERSION_TAG"
+
+      - name: Check if version already exists in GHCR
+        id: exists
         run: |
-          REPO_LOWER=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          echo "repo=$REPO_LOWER" >> "$GITHUB_OUTPUT"
-          
-          # Check if the specific version tag already exists in your registry
-          docker manifest inspect ghcr.io/$REPO_LOWER:${{ steps.get_version.outputs.AGH_VERSION }} > /dev/null 2>&1
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          docker manifest inspect ghcr.io/$REPO:${{ steps.version.outputs.tag }} >/dev/null 2>&1
         continue-on-error: true
 
-      - name: Tag and push image if it is new
-        # Only runs if the 'inspect' command failed (meaning the version is not in GHCR yet)
-        if: steps.check_image.outcome == 'failure'
+      - name: Push image to GHCR
+        if: steps.exists.outcome == 'failure'
         run: |
-          REPO="ghcr.io/${{ steps.check_image.outputs.repo }}"
-          VER="${{ steps.get_version.outputs.AGH_VERSION }}"
-          
-          echo "New version detected ($VER). Pushing to registry..."
+          REPO="ghcr.io/${{ steps.exists.outputs.repo }}"
+          TAG="${{ steps.version.outputs.tag }}"
+
+          echo "New version detected: $TAG"
           docker tag agh:local "$REPO:latest"
-          docker tag agh:local "$REPO:$VER"
-          
+          docker tag agh:local "$REPO:$TAG"
+
           docker push "$REPO:latest"
-          docker push "$REPO:$VER"
+          docker push "$REPO:$TAG"
 
       - name: Skip push
-        if: steps.check_image.outcome == 'success'
+        if: steps.exists.outcome == 'success'
         run: |
-          echo "Version ${{ steps.get_version.outputs.AGH_VERSION }} is already up to date in GHCR. Doing nothing."
+          echo "Version ${{ steps.version.outputs.tag }} already exists in GHCR."
