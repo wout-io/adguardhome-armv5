@@ -19,68 +19,63 @@ jobs:
       packages: write
 
     steps:
+      # Step 1: Detect latest AdGuard version via GitHub API (no build needed)
+      - name: Get latest AdGuard Home version
+        id: version
+        run: |
+          VERSION_TAG=$(curl -sL https://api.github.com/repos/AdguardTeam/AdGuardHome/releases/latest | jq -r .tag_name)
+          if [ -z "$VERSION_TAG" ] || [ "$VERSION_TAG" = "null" ]; then
+            echo "Could not detect AdGuard version from GitHub API"
+            exit 1
+          fi
+          echo "tag=$VERSION_TAG" >> "$GITHUB_OUTPUT"
+          echo "Latest AdGuard Home version: $VERSION_TAG"
+
+      # Step 2: Check if this version already exists in GHCR (skip build if so)
+      - name: Check if version already exists in GHCR
+        id: exists
+        continue-on-error: true
+        run: |
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
+          docker manifest inspect "ghcr.io/$REPO:${{ steps.version.outputs.tag }}" >/dev/null 2>&1
+
+      # Steps 3-7 only run if the version is NEW
       - name: Checkout repository
+        if: steps.exists.outcome == 'failure'
         uses: actions/checkout@v4
 
       - name: Set up QEMU
+        if: steps.exists.outcome == 'failure'
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
+        if: steps.exists.outcome == 'failure'
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
+        if: steps.exists.outcome == 'failure'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build image locally
+      - name: Build and push image
+        if: steps.exists.outcome == 'failure'
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/arm/v5
-          push: false
-          load: true
+          push: true
           no-cache: true
-          tags: agh:local
+          build-args: |
+            AGH_VERSION=${{ steps.version.outputs.tag }}
+          tags: |
+            ghcr.io/${{ steps.exists.outputs.repo }}:latest
+            ghcr.io/${{ steps.exists.outputs.repo }}:${{ steps.version.outputs.tag }}
 
-      - name: Detect AdGuard version
-        id: version
-        run: |
-          RAW_VERSION=$(docker run --rm agh:local ./AdGuardHome --version)
-          VERSION_TAG=$(echo "$RAW_VERSION" | grep -Eo 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n1)
-
-          if [ -z "$VERSION_TAG" ]; then
-            echo "Could not detect AdGuard version"
-            exit 1
-          fi
-
-          echo "tag=$VERSION_TAG" >> "$GITHUB_OUTPUT"
-          echo "Detected version: $VERSION_TAG"
-
-      - name: Check if version already exists in GHCR
-        id: exists
-        run: |
-          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          echo "repo=$REPO" >> "$GITHUB_OUTPUT"
-          docker manifest inspect ghcr.io/$REPO:${{ steps.version.outputs.tag }} >/dev/null 2>&1
-        continue-on-error: true
-
-      - name: Push image to GHCR
-        if: steps.exists.outcome == 'failure'
-        run: |
-          REPO="ghcr.io/${{ steps.exists.outputs.repo }}"
-          TAG="${{ steps.version.outputs.tag }}"
-
-          echo "New version detected: $TAG"
-          docker tag agh:local "$REPO:latest"
-          docker tag agh:local "$REPO:$TAG"
-
-          docker push "$REPO:latest"
-          docker push "$REPO:$TAG"
-
-      - name: Skip push
+      - name: Version already up to date
         if: steps.exists.outcome == 'success'
         run: |
-          echo "Version ${{ steps.version.outputs.tag }} already exists in GHCR."
+          echo "Version ${{ steps.version.outputs.tag }} already exists in GHCR. Nothing to do."
