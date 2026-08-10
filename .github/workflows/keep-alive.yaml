@@ -1,0 +1,28 @@
+name: Keep Actions Active
+
+on:
+  schedule:
+    - cron: '0 0 * * *'    # dagelijks om 00:00 UTC — pas aan indien gewenst
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Update last-build timestamp
+        run: |
+          mkdir -p .github
+          echo "Last run: $(date -u +\"%Y-%m-%dT%H:%M:%SZ\")" > .github/last-build
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/last-build
+          git commit -m "chore: update last-build [skip ci]" || echo "no changes to commit"
+          git push || echo "Push failed; branch protection may block GITHUB_TOKEN from pushing"
